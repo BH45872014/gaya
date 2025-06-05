@@ -1,0 +1,420 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import openai
+import logging
+import re
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+
+
+st.set_page_config(page_title="GenAI Hackathon", layout="wide")
+
+# OpenAI API setup for multiple models
+openai.api_type = "azure"
+openai.api_base = "https://genai-openai-analytics0.openai.azure.com/"  
+openai.api_version = "2024-05-01-preview"  
+
+# Define keys for different models
+model_keys = {
+    "gpt-35-turbo": "51c83a65a56a47d4ab3f4a67463bd949"
+}
+
+# Logging setup
+logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(message)s")
+
+def create_2023_dataset():
+                                                                                            
+    # Settings
+    num_sap_accounts = 100
+    cob_dates = ["2023-09-29"]
+    trade_start_date = datetime(2023, 1, 1)
+    trade_end_date = datetime(2023, 9, 30)
+
+    # Generate unique Trade IDs for each day for each SAP Account
+    trade_dates = pd.date_range(trade_start_date, trade_end_date)
+    np.random.seed(42)
+
+    # Create DataFrame for all combinations
+    data = []
+
+    for cob_date in cob_dates:
+        for sap_account in [f"ACC-{i+1:04d}" for i in range(num_sap_accounts)]:
+            for trade_date in trade_dates:
+                num_trades_per_day = 1 # 1 to 3 trades per day
+                for _ in range(num_trades_per_day):
+                    trade_id = f"{sap_account}-{trade_date.strftime('%Y%m%d')}-{np.random.randint(1000, 9999)}"
+                    
+                    # Randomly set maturity to the next day or later
+                    maturity_date = trade_date + timedelta(days=1)
+                    
+                    principal_amount = np.round(np.random.uniform(1, 10), 2) * 1e6
+                    balance_amount = np.round(np.random.uniform(20000, 99000), 2)
+                    interest_rate = np.round(np.random.uniform(4.5, 5.8), 2)
+                    floating_rate = np.round(np.random.uniform(4.0, 6.0), 2)
+
+                    data.append([
+                        cob_date,
+                        sap_account,
+                        floating_rate,
+                        interest_rate,
+                        balance_amount,
+                        trade_date,
+                        maturity_date,
+                        trade_id,
+                        principal_amount
+                    ])
+
+    # Create DataFrame
+    columns = [
+        "COB Date",
+        "SAP Account",
+        "Floating Rate",
+        "Interest Rate",
+        "Balance Amount",
+        "Trade Date",
+        "Maturity Date",
+        "Trade ID",
+        "Principal Amount"
+    ]
+    df_2023 = pd.DataFrame(data, columns=columns)
+    return df_2023
+
+def create_2024_dataset():
+    num_sap_accounts = 100
+    cob_dates = ["2024-09-30"]
+    trade_start_date = datetime(2024, 1, 1)
+    trade_end_date = datetime(2024, 9, 30)
+
+    # Generate unique Trade IDs for each day for each SAP Account
+    trade_dates = pd.date_range(trade_start_date, trade_end_date)
+    np.random.seed(42)
+
+    # Create DataFrame for all combinations
+    data = []
+
+    for cob_date in cob_dates:
+        for sap_account in [f"ACC-{i+1:04d}" for i in range(num_sap_accounts)]:
+            for trade_date in trade_dates:
+                num_trades_per_day = 1 # 1 to 3 trades per day
+                for _ in range(num_trades_per_day):
+                    trade_id = f"{sap_account}-{trade_date.strftime('%Y%m%d')}-{np.random.randint(1000, 9999)}"
+                    
+                    # Randomly set maturity to the next day or later
+                    maturity_date = trade_date + timedelta(days=1)
+                    
+                    principal_amount = np.round(np.random.uniform(1, 10), 2) * 1e6
+                    balance_amount = np.round(np.random.uniform(20000, 99000), 2)
+                    interest_rate = np.round(np.random.uniform(4.5, 5.8), 2)
+                    floating_rate = np.round(np.random.uniform(4.0, 6.0), 2)
+
+                    data.append([
+                        cob_date,
+                        sap_account,
+                        floating_rate,
+                        interest_rate,
+                        balance_amount,
+                        trade_date,
+                        maturity_date,
+                        trade_id,
+                        principal_amount
+                    ])
+
+    # Create DataFrame
+    columns = [
+        "COB Date",
+        "SAP Account",
+        "Floating Rate",
+        "Interest Rate",
+        "Balance Amount",
+        "Trade Date",
+        "Maturity Date",
+        "Trade ID",
+        "Principal Amount"
+    ]
+    df_2024 = pd.DataFrame(data, columns=columns)
+    return df_2024
+
+def create_prompt_with_code_request(df_summary, df_detailed):
+    df_summary_str = df_summary.head(10).to_string(index=False)
+    df_detailed_str = df_detailed.head(10).to_string(index=False)
+    prompt = f"""
+    I have financial data for multiple SAP accounts for the years 2023 and 2024. The data includes two datasets:
+    1. The first dataset (df_summary) contains daily records of balance for each SAP account with a COB Date and Balance Amount. Here is a sample: {df_summary_str}
+    2. The second dataset (df_detailed) includes detailed records for each SAP account, with columns for COB Date, Trade Date, Maturity Date, Balance Amount, Floating Rate, Interest Rate, and Principal Amount. Here is a sample: {df_detailed_str}
+
+    Please provide Python code that completes the following tasks and stores the results in the specified variable names, Note that the data is already loaded in the dataframes 'df_summary' and 'df_detailed' for your use, don't reload the data.::
+
+    1. In `df_summary`, calculate the top 3 SAP accounts with the largest total increase in balance for September and store the result as a list in the variable `top3_increase`. Similarly, calculate the top 3 SAP accounts with the largest decrease in balance and store the result in the variable `top3_decrease`.
+
+    2. Using `df_detailed`, calculate the average balance, principal amount, floating rate, and interest rate for each SAP account for September in both years 2023 and 2024. Ensure that date columns (e.g., COB Date) are converted to datetime format before processing, and verify that numeric columns are in the correct format to avoid errors. 
+
+    3. Calculate the year-over-year (YoY) change from 2023 to 2024 for each SAP account in the columns for average balance, principal amount, floating rate, and interest rate, using the results from step 2. Store these YoY changes in a single DataFrame called `avg_data`, which should have only five columns: `SAP Account`, `Balance_chg`, `Principal_chg`, `FloatingRate_chg`, and `Interest_chg`.
+
+    4. Identify and store the top 3 SAP accounts with the largest YoY increase in floating rate in a list named `top3_floating_increase`, and the top 3 with the largest YoY decrease in floating rate in a list named `top3_floating_decrease`. Similarly, store the top 3 SAP accounts with the largest YoY increase in interest rate in a list named `top3_int_increase` and the top 3 with the largest YoY decrease in interest rate in a list named `top3_int_decrease`.
+
+    Ensure that only the columns specified are included in `avg_data`, with one row per SAP account, and that the YoY calculations are performed correctly. Respond with the code only, without any additional formatting or code block delimiters, so it can be run directly.
+    """
+    return prompt
+
+def standardize_column_names(df):
+    # Standardize column names by stripping whitespace and converting to title case
+    df.columns = [col.strip().title() for col in df.columns]
+    return df
+
+def get_and_execute_code(prompt, df_summary, df_detailed, model="gpt-35-turbo"):
+    try:
+        # Set API key based on model
+        openai.api_key = model_keys[model]
+        
+        # Request code from OpenAI
+        response = openai.ChatCompletion.create(
+            engine=model,
+            messages=[
+                {"role": "system", "content": "You are a data analyst who provides Python code."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=800
+        )
+        
+        # Extract Python code from response
+        code = response['choices'][0]['message']['content']
+        #st.subheader("Generated Python Code")
+        #st.code(code, language='python')
+        
+        # Clean up the code using regex to remove markdown formatting and unexpected characters
+        code_match = re.search(r"```(.*?)```", code, re.DOTALL)
+        code_python = re.sub(r"```python(.*?)```", "", code, flags=re.DOTALL)
+        if code_match:
+            code_to_execute = code_match.group(1).strip()
+        elif code_python:
+            code_to_execute = code_python.group(1).strip()
+        else:
+            code_to_execute = code.strip()
+        
+        # Log the code execution
+        logging.info("Executing the following code:\n%s", code_to_execute)
+
+        # Execute the sanitized Python code and capture the output
+        local_vars = {"df_summary": df_summary, "df_detailed": df_detailed}
+        exec(code_to_execute, globals(), local_vars)
+        
+        # Display results
+        result_vars = [
+            'top3_increase', 'top3_decrease', 'avg_data', 
+            'top3_floating_increase', 'top3_floating_decrease', 
+            'top3_int_increase', 'top3_int_decrease'
+        ]
+        
+        for var in result_vars:
+            if var in local_vars:
+                st.subheader(f"{var.replace('_', ' ').title()}")
+                st.write(local_vars[var])
+                logging.info("Print:", code_to_execute)
+            # Button for commentary on balance movement
+        
+            
+        if not any(var in local_vars for var in result_vars):
+            st.error("The generated code did not produce the expected variables for display.")
+    
+    except Exception as e:
+        logging.error("An error occurred during code execution: %s", e)
+        st.error(f"An error occurred: {e}")
+
+def get_movement_commentary(selected_account, avg_data):
+    account_filtered_data = avg_data[avg_data['Sap Account'] == selected_account]
+    account_filtered_data[['Sap Account', 'Balance_chg', 'Principal_chg', 'FloatingRate_chg', 'Interest_chg']]
+    # Generate a prompt for OpenAI to provide commentary
+    prompt = f""" This is the data for the SAP account '{selected_account}' for the years 2023 and 2024:
+    {account_filtered_data.to_string(index=False)}
+
+    Analyze the data and provide a two-line commentary on why there was a movement in the balance amount due to changes in the principal amount, floating rate, and interest rate for the SAP account '{selected_account}' from 2023 to 2024.
+
+    Explain potential reasons for the observed changes in floating rate and interest rate.
+    Additionally, include the percentage change for balance, principal amount, floating rate, and interest rate.
+    """
+
+    logging.info("Executing the following prompt:\n%s", prompt)
+
+    try:
+        response = openai.ChatCompletion.create(
+            engine="gpt-35-turbo",
+            messages=[
+                {"role": "system", "content": "You are a financial data analyst who provides detailed commentaries."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=800
+        )
+        commentary = response['choices'][0]['message']['content']
+        logging.info("Commentary response: %s", commentary)
+        return commentary
+    except Exception as e:
+        logging.error("An error occurred while generating commentary: %s", e)
+        return "An Error has occurred" 
+
+def prompt_response_run(df_summary, df_detailed):
+
+    # Task 1
+    df_summary['Cob Date'] = pd.to_datetime(df_summary['Cob Date'])
+
+    df_summary_2023 = df_summary[df_summary['Cob Date'].dt.year == 2023]
+    df_summary_2024 = df_summary[df_summary['Cob Date'].dt.year == 2024]
+
+    df_summary_2023_grp = df_summary_2023.groupby('Sap Account')['Balance Amount'].sum().reset_index()
+    df_summary_2024_grp = df_summary_2024.groupby('Sap Account')['Balance Amount'].sum().reset_index()
+
+    df_summary_yoy = pd.merge(df_summary_2023_grp, df_summary_2024_grp, on='Sap Account', suffixes=('_2023', '_2024'))
+
+    df_summary_yoy['Balance_chg'] = df_summary_yoy['Balance Amount_2024'] - df_summary_yoy['Balance Amount_2023']
+
+    # top 3 SAP accounts with largest increase in balance
+    top3_increase = df_summary_yoy.nlargest(3, 'Balance_chg')['Sap Account'].tolist()
+
+    # top 3 SAP accounts with largest decrease in balance
+    top3_decrease = df_summary_yoy.nsmallest(3, 'Balance_chg')['Sap Account'].tolist()
+
+
+    # Task 2
+    df_detailed['Cob Date'] = pd.to_datetime(df_detailed['Cob Date'])
+    df_detailed['Trade Date'] = pd.to_datetime(df_detailed['Trade Date'])
+    df_detailed['Maturity Date'] = pd.to_datetime(df_detailed['Maturity Date'])
+
+    df_detailed_sep_2023 = df_detailed[(df_detailed['Cob Date'].dt.month == 9) & (df_detailed['Cob Date'].dt.year == 2023)]
+    df_detailed_sep_2024 = df_detailed[(df_detailed['Cob Date'].dt.month == 9) & (df_detailed['Cob Date'].dt.year == 2024)]
+
+    avg_data_2023 = df_detailed_sep_2023.groupby(['Sap Account']).agg(
+        {'Balance Amount': 'mean', 'Floating Rate': 'mean', 'Interest Rate': 'mean', 'Principal Amount': 'mean'}).reset_index()
+    avg_data_2024 = df_detailed_sep_2024.groupby(['Sap Account']).agg(
+        {'Balance Amount': 'mean', 'Floating Rate': 'mean', 'Interest Rate': 'mean', 'Principal Amount': 'mean'}).reset_index()
+
+    avg_data = pd.merge(avg_data_2023, avg_data_2024, on='Sap Account', suffixes=('_2023', '_2024'))
+
+
+    # Task 3
+    avg_data['Balance_chg'] = avg_data['Balance Amount_2024'] - avg_data['Balance Amount_2023']
+    avg_data['Principal_chg'] = avg_data['Principal Amount_2024'] - avg_data['Principal Amount_2023']
+    avg_data['FloatingRate_chg'] = avg_data['Floating Rate_2024'] - avg_data['Floating Rate_2023']
+    avg_data['Interest_chg'] = avg_data['Interest Rate_2024'] - avg_data['Interest Rate_2023']
+
+
+    # Task 4
+    top3_floating_increase = avg_data.nlargest(3, 'FloatingRate_chg')['Sap Account'].tolist()
+    top3_floating_decrease = avg_data.nsmallest(3, 'FloatingRate_chg')['Sap Account'].tolist()
+    top3_int_increase = avg_data.nlargest(3, 'Interest_chg')['Sap Account'].tolist()
+    top3_int_decrease = avg_data.nsmallest(3, 'Interest_chg')['Sap Account'].tolist()
+
+    return top3_increase, top3_decrease, avg_data, top3_floating_increase, top3_floating_decrease, top3_int_increase, top3_int_decrease
+
+# Streamlit UI
+st.title("MITR Analytics Dashboard")
+st.write("Analyze SAP accounts data using GenAI with either uploaded or generated data. Choose an option below:")
+
+# User option to upload files or generate data
+data_option = st.radio("Choose Data Option", ["Upload Files", "Generate Sample Data"], horizontal=True)
+
+if data_option == "Upload Files":
+    uploaded_file_sept = st.file_uploader("Upload Previous Year Dataset", type=["csv"])
+    uploaded_file_jan_sep = st.file_uploader("Upload Current Year Dataset", type=["csv"])
+    if uploaded_file_sept and uploaded_file_jan_sep:
+        df_2023 = pd.read_csv(uploaded_file_sept)
+        df_2024 = pd.read_csv(uploaded_file_jan_sep)
+        st.success("Both datasets uploaded successfully!")
+else:
+    df_2023 = create_2023_dataset()
+    df_2024 = create_2024_dataset()
+    st.success("Sample data generated successfully!")
+
+# Model selection dropdown
+model_option = st.selectbox("Select Model for Analysis", ["gpt-35-turbo"])
+
+# Load or create datasets
+df_2023 = standardize_column_names(create_2023_dataset())
+df_2024 = standardize_column_names(create_2024_dataset())
+
+# Check column names for debugging and logging
+logging.info("df_2023 columns: %s", df_2023.columns)
+logging.info("df_2024 columns: %s", df_2024.columns)
+
+# Display data if available
+if 'df_2023' in locals() and 'df_2024' in locals():
+    with st.expander("View Previous Year Dataset", expanded=True):
+        st.write(df_2023.head(10))
+    with st.expander("View Current Year Dataset", expanded=True):
+        st.write(df_2024.head(10))
+
+    df_main = pd.concat([df_2023, df_2024], ignore_index=True)
+    logging.info("df_main head: %s", df_2024.head(2))
+    
+    with st.expander("Show Combined Data", expanded=True):
+        df_summary = df_main.pivot_table(
+            values='Balance Amount',
+            index=['Sap Account', 'Cob Date'],
+            aggfunc='mean'
+        ).reset_index()
+
+        # Second pivot table: COB Date, SAP Account, Floating Rate, Interest Rate, Balance Amount, Trade Date, Maturity Date, Principal Amount
+        df_detailed = df_main.pivot_table(
+            values=['Floating Rate', 'Interest Rate', 'Balance Amount', 'Principal Amount'],
+            index=['Cob Date', 'Sap Account', 'Trade Date', 'Maturity Date'],
+            aggfunc='first'
+        ).reset_index()
+
+        # Create tabs for displaying summary and detailed data
+        tab1, tab2 = st.tabs(["Summary Data", "Detailed Data"])
+
+        with tab1:
+            st.subheader("Summary Data")
+            st.write(df_summary.head(10))
+
+        with tab2:
+            st.subheader("Detailed Data")
+            st.write(df_detailed.head(10))
+    # Create and display prompt
+    prompt = create_prompt_with_code_request(df_summary, df_detailed)
+    with st.expander("View Prompt Questions", expanded=True):
+        user_prompt = st.text_area("Prompt for Python Code", value=prompt, height=200)
+
+    top3_increase, top3_decrease, avg_data, top3_floating_increase, top3_floating_decrease, top3_int_increase, top3_int_decrease = prompt_response_run(df_summary, df_detailed)
+    # Get and execute code from OpenAI
+    if st.button("Get Report"):
+        #get_and_execute_code(prompt, df_2023, df_2024, model=model_option)
+        
+        # Display top 3 SAP accounts with the largest increase in balance
+        st.markdown("### Top 3 SAP Accounts with Largest Increase in Balance")
+        st.write(top3_increase)
+
+        # Display top 3 SAP accounts with the largest decrease in balance
+        st.markdown("### Top 3 SAP Accounts with Largest Decrease in Balance")
+        st.write(top3_decrease)
+
+        # Display average data
+        st.markdown("### Average Data for SAP Accounts")
+        st.dataframe(avg_data[['Sap Account', 'Balance_chg', 'Principal_chg', 'FloatingRate_chg', 'Interest_chg']])
+
+        # Display top 3 SAP accounts with the largest YoY increase in floating rate
+        st.markdown("### Top 3 SAP Accounts with Largest YoY Increase in Floating Rate")
+        st.write(top3_floating_increase)
+
+        # Display top 3 SAP accounts with the largest YoY decrease in floating rate
+        st.markdown("### Top 3 SAP Accounts with Largest YoY Decrease in Floating Rate")
+        st.write(top3_floating_decrease)
+
+        # Display top 3 SAP accounts with the largest YoY increase in interest rate
+        st.markdown("### Top 3 SAP Accounts with Largest YoY Increase in Interest Rate")
+        st.write(top3_int_increase)
+
+        # Display top 3 SAP accounts with the largest YoY decrease in interest rate
+        st.markdown("### Top 3 SAP Accounts with Largest YoY Decrease in Interest Rate")
+        st.write(top3_int_decrease)
+        
+        st.subheader("Request Commentary on Balance Movement")
+        
+        # Add logging for commentary prompt
+        
+    if st.button("Get Commentary"):
+        selected_account = st.selectbox("Select an SAP Account for commentary:", avg_data['Sap Account'].unique())
+        logging.info("Requesting commentary for SAP account: %s", selected_account)
+        commentary_response = get_movement_commentary(selected_account, avg_data)
+        st.subheader("Commentary from OpenAI")
+        st.write(commentary_response)
+
